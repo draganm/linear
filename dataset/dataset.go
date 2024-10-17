@@ -21,6 +21,7 @@ type DatasetConfig struct {
 }
 
 type Dataset struct {
+	log      *slog.Logger
 	config   DatasetConfig
 	name     string
 	localDir string
@@ -87,6 +88,7 @@ func Create(
 	// TODO: create statemate
 
 	return &Dataset{
+		log:      opts.Log,
 		config:   opts.Config,
 		name:     opts.Name,
 		localDir: opts.LocalDir,
@@ -94,4 +96,8 @@ func Create(
 		head:     sm,
 	}, nil
 
+}
+
+func (d *Dataset) Close() error {
+	return d.head.Close()
 }

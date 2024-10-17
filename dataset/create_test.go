@@ -18,11 +18,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/minio"
 )
 
-func TestLead(t *testing.T) {
-
+func withMinioContainer(t *testing.T, fn func(ctx context.Context, s3Client *s3.Client, bucketName string)) {
 	ctx := context.Background()
-
-	dataDir := t.TempDir()
 
 	minioContainer, err := minio.Run(ctx, "minio/minio:RELEASE.2024-01-16T16-07-38Z")
 	require.NoError(t, err)
@@ -55,47 +52,89 @@ func TestLead(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ds, err := dataset.Create(
-		ctx,
-		dataset.CreateOptions{
-			Log:      slog.Default(),
-			S3Client: s3Client,
-			S3Bucket: "test-bucket",
-			Config: dataset.DatasetConfig{
-				MaxArchiveSize: 100,
-				MaxArchiveTime: 24 * time.Hour,
+	fn(ctx, s3Client, "test-bucket")
+
+}
+
+func withDataset(t *testing.T, fn func(ctx context.Context, ds *dataset.Dataset)) {
+
+	withMinioContainer(t, func(ctx context.Context, s3Client *s3.Client, bucketName string) {
+		dataDir := t.TempDir()
+
+		ds, err := dataset.Create(
+			ctx,
+			dataset.CreateOptions{
+				Log:      slog.Default(),
+				S3Client: s3Client,
+				S3Bucket: "test-bucket",
+				Config: dataset.DatasetConfig{
+					MaxArchiveSize: 100,
+					MaxArchiveTime: 24 * time.Hour,
+				},
+				Name:     "test-dataset",
+				LocalDir: dataDir,
 			},
-			Name:     "test-dataset",
-			LocalDir: dataDir,
-		},
-	)
+		)
 
-	require.NoError(t, err)
+		require.NoError(t, err)
 
-	r := http.NewServeMux()
+		defer ds.Close()
 
-	r.HandleFunc("/dataset", ds.GetInfo)
+		fn(ctx, ds)
+	})
 
-	s := httptest.NewServer(r)
-	defer s.Close()
+}
 
-	var info dataset.DatasetInfo
+func TestLead(t *testing.T) {
+	t.Parallel()
 
-	res, err := resty.New().R().SetResult(&info).Get(s.URL + "/dataset")
-	require.NoError(t, err)
+	withMinioContainer(t, func(ctx context.Context, s3Client *s3.Client, bucketName string) {
+		dataDir := t.TempDir()
 
-	require.Equal(t, http.StatusOK, res.StatusCode())
-	require.Equal(t,
-		dataset.DatasetInfo{
-			Name: "test-dataset",
-			Config: dataset.DatasetConfig{
-				MaxArchiveSize: 100,
-				MaxArchiveTime: 24 * time.Hour,
+		ds, err := dataset.Create(
+			ctx,
+			dataset.CreateOptions{
+				Log:      slog.Default(),
+				S3Client: s3Client,
+				S3Bucket: "test-bucket",
+				Config: dataset.DatasetConfig{
+					MaxArchiveSize: 100,
+					MaxArchiveTime: 24 * time.Hour,
+				},
+				Name:     "test-dataset",
+				LocalDir: dataDir,
 			},
-			FirstIndex:   0xffffffffffffffff,
-			LastIndex:    0xffffffffffffffff,
-			StorageBytes: 0x8,
-		},
-		info,
-	)
+		)
+
+		require.NoError(t, err)
+
+		defer ds.Close()
+
+		r := http.NewServeMux()
+
+		r.HandleFunc("/dataset", ds.GetInfo)
+
+		s := httptest.NewServer(r)
+		defer s.Close()
+
+		var info dataset.DatasetInfo
+
+		res, err := resty.New().R().SetResult(&info).Get(s.URL + "/dataset")
+		require.NoError(t, err)
+
+		require.Equal(t, http.StatusOK, res.StatusCode())
+		require.Equal(t,
+			dataset.DatasetInfo{
+				Name: "test-dataset",
+				Config: dataset.DatasetConfig{
+					MaxArchiveSize: 100,
+					MaxArchiveTime: 24 * time.Hour,
+				},
+				FirstIndex:   0xffffffffffffffff,
+				LastIndex:    0xffffffffffffffff,
+				StorageBytes: 0x8,
+			},
+			info,
+		)
+	})
 }
