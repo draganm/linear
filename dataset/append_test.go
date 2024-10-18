@@ -3,7 +3,6 @@ package dataset_test
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -14,22 +13,15 @@ import (
 
 func TestAppend(t *testing.T) {
 	t.Parallel()
-	withDataset(t, func(ctx context.Context, ds *dataset.Dataset) {
-		r := http.NewServeMux()
+	withDataset(t, func(ctx context.Context, url string) {
 
-		r.HandleFunc("GET /dataset", ds.GetInfo)
-		r.HandleFunc("PUT /dataset/{index}", ds.Append)
-
-		s := httptest.NewServer(r)
-		defer s.Close()
-
-		res, err := resty.New().R().SetBody([]byte{1, 2, 3}).Put(s.URL + "/dataset/0")
+		res, err := resty.New().R().SetBody([]byte{1, 2, 3}).Put(url + "/dataset/0")
 		require.NoError(t, err)
 		require.Equal(t, http.StatusNoContent, res.StatusCode())
 
 		var info dataset.DatasetInfo
 
-		res, err = resty.New().R().SetResult(&info).Get(s.URL + "/dataset")
+		res, err = resty.New().R().SetResult(&info).Get(url + "/dataset")
 		require.NoError(t, err)
 
 		require.Equal(t, http.StatusOK, res.StatusCode())

@@ -56,7 +56,7 @@ func withMinioContainer(t *testing.T, fn func(ctx context.Context, s3Client *s3.
 
 }
 
-func withDataset(t *testing.T, fn func(ctx context.Context, ds *dataset.Dataset)) {
+func withDataset(t *testing.T, fn func(ctx context.Context, url string)) {
 
 	withMinioContainer(t, func(ctx context.Context, s3Client *s3.Client, bucketName string) {
 		dataDir := t.TempDir()
@@ -80,7 +80,16 @@ func withDataset(t *testing.T, fn func(ctx context.Context, ds *dataset.Dataset)
 
 		defer ds.Close()
 
-		fn(ctx, ds)
+		r := http.NewServeMux()
+
+		r.HandleFunc("GET /dataset", ds.GetInfo)
+		r.HandleFunc("GET /dataset/{index}", ds.Get)
+		r.HandleFunc("PUT /dataset/{index}", ds.Append)
+
+		s := httptest.NewServer(r)
+		defer s.Close()
+
+		fn(ctx, s.URL)
 	})
 
 }
