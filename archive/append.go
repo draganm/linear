@@ -18,7 +18,7 @@ func (a *Archive) Append(ctx context.Context, sm *statemate.StateMate[uint64]) e
 	firstIndex := sm.GetFirstIndex()
 	lastIndex := sm.GetLastIndex()
 
-	blobFileName := fmt.Sprintf("blob-%018d-%018d", firstIndex, lastIndex)
+	blobFileName := fmt.Sprintf("blob-%020d-%020d", firstIndex, lastIndex)
 
 	blobFilePath := filepath.Join(a.blobDir, blobFileName)
 

@@ -31,9 +31,10 @@ func TestAppend(t *testing.T) {
 			require.NoError(t, err)
 		}
 
+		log := slogt.New(t)
 		ar, err := archive.Open(
 			ctx,
-			slogt.New(t),
+			log,
 			archive.OpenOptions{
 				S3Client: s3Client,
 				S3Bucket: bucketName,
@@ -52,6 +53,8 @@ func TestAppend(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, files, 1)
+
+		log.Info("blob", "file", files[0].Name())
 
 		bm, err := blobmap.Open(filepath.Join(blobs, files[0].Name()))
 		require.NoError(t, err)
@@ -83,6 +86,18 @@ func TestAppend(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, keys.Contents, 1)
+
+		_, err = archive.Open(
+			ctx,
+			log,
+			archive.OpenOptions{
+				S3Client: s3Client,
+				S3Bucket: bucketName,
+				Name:     "test-archive",
+				LocalDir: blobDir,
+			},
+		)
+		require.NoError(t, err)
 
 	})
 }
