@@ -5,6 +5,7 @@
         "draganm",
         "minio",
         "minioadmin",
+        "slogt",
         "statemate",
         "stretchr",
         "testcontainers"
