@@ -21,7 +21,6 @@ type Cache[T any] struct {
 	MaxSize     uint64
 	CurrentSize uint64
 	mu          *sync.Mutex
-	Load        func(key string) (T, uint64, error)
 	OnRemove    func(key string, value T)
 }
 
@@ -58,7 +57,7 @@ func (c *Cache[T]) makeSpace(size uint64) error {
 	return nil
 }
 
-func (c *Cache[T]) Get(key string) (T, error) {
+func (c *Cache[T]) Get(key string, loadFn func() (T, uint64, error)) (T, error) {
 	c.mu.Lock()
 
 	entry, ok := c.Map[key]
@@ -77,7 +76,7 @@ func (c *Cache[T]) Get(key string) (T, error) {
 	loadOnce = sync.OnceValues(func() (T, error) {
 		c.mu.Unlock()
 
-		value, size, err := c.Load(key)
+		value, size, err := loadFn()
 		if err != nil {
 			c.mu.Lock()
 			delete(c.Loading, key)
@@ -146,7 +145,6 @@ func (c *Cache[T]) addToFront(entry *LinkedListEntry[T]) {
 
 func NewCache[T any](
 	maxSize uint64,
-	loadFn func(string) (T, uint64, error),
 	onRemove func(string, T),
 ) *Cache[T] {
 	return &Cache[T]{
@@ -154,7 +152,6 @@ func NewCache[T any](
 		Loading:  make(map[string]func() (T, error)),
 		MaxSize:  maxSize,
 		mu:       &sync.Mutex{},
-		Load:     loadFn,
 		OnRemove: onRemove,
 	}
 }

@@ -16,9 +16,7 @@ func TestCache_Basic(t *testing.T) {
 
 	cache := NewCache[string](
 		100,
-		func(key string) (string, uint64, error) {
-			return "value-" + key, 10, nil
-		},
+
 		func(key string, value string) {
 			removeMu.Lock()
 			removed[key] = value
@@ -26,14 +24,18 @@ func TestCache_Basic(t *testing.T) {
 		},
 	)
 
+	loadKey1 := func() (string, uint64, error) {
+		return "value-key1", 10, nil
+	}
+
 	// Test single get
-	value, err := cache.Get("key1")
+	value, err := cache.Get("key1", loadKey1)
 	require.NoError(t, err)
 	assert.Equal(t, "value-key1", value)
 	assert.Equal(t, uint64(10), cache.CurrentSize)
 
 	// Test cache hit
-	value, err = cache.Get("key1")
+	value, err = cache.Get("key1", loadKey1)
 	require.NoError(t, err)
 	assert.Equal(t, "value-key1", value)
 }
@@ -44,9 +46,7 @@ func TestCache_Eviction(t *testing.T) {
 
 	cache := NewCache[string](
 		25,
-		func(key string) (string, uint64, error) {
-			return "value-" + key, 10, nil
-		},
+
 		func(key string, value string) {
 			removeMu.Lock()
 			removed[key] = value
@@ -56,7 +56,12 @@ func TestCache_Eviction(t *testing.T) {
 
 	// Add items until eviction
 	for i := 1; i <= 3; i++ {
-		value, err := cache.Get(string(rune('0' + i)))
+		value, err := cache.Get(
+			string(rune('0'+i)),
+			func() (string, uint64, error) {
+				return "value-" + string(rune('0'+i)), 10, nil
+			},
+		)
 		require.NoError(t, err)
 		assert.Equal(t, "value-"+string(rune('0'+i)), value)
 	}
@@ -69,13 +74,16 @@ func TestCache_Eviction(t *testing.T) {
 func TestCache_LoadError(t *testing.T) {
 	cache := NewCache[string](
 		100,
-		func(key string) (string, uint64, error) {
-			return "", 0, errors.New("load error")
-		},
+
 		nil,
 	)
 
-	value, err := cache.Get("key1")
+	value, err := cache.Get(
+		"key1",
+		func() (string, uint64, error) {
+			return "", 0, errors.New("load error")
+		},
+	)
 	assert.Error(t, err)
 	assert.Equal(t, "", value)
 }
@@ -83,13 +91,16 @@ func TestCache_LoadError(t *testing.T) {
 func TestCache_SizeError(t *testing.T) {
 	cache := NewCache[string](
 		10,
-		func(key string) (string, uint64, error) {
-			return "value", 20, nil
-		},
+
 		nil,
 	)
 
-	_, err := cache.Get("key1")
+	_, err := cache.Get(
+		"key1",
+		func() (string, uint64, error) {
+			return "value", 20, nil
+		},
+	)
 	require.Error(t, err)
 }
 
@@ -101,10 +112,7 @@ func TestCache_Parallel(t *testing.T) {
 
 	cache := NewCache[int](
 		1000,
-		func(key string) (int, uint64, error) {
-			time.Sleep(time.Millisecond) // Simulate work
-			return len(key), 1, nil
-		},
+
 		nil,
 	)
 
@@ -116,7 +124,13 @@ func TestCache_Parallel(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				key := string(rune(j % 10))
-				value, err := cache.Get(key)
+				value, err := cache.Get(
+					key,
+					func() (int, uint64, error) {
+						time.Sleep(time.Millisecond) // Simulate work
+						return len(key), 1, nil
+					},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, 1, value)
 			}
@@ -134,10 +148,6 @@ func TestCache_ParallelWithEviction(t *testing.T) {
 
 	cache := NewCache[string](
 		50,
-		func(key string) (string, uint64, error) {
-			time.Sleep(time.Millisecond)
-			return key, 10, nil
-		},
 		func(key string, value string) {
 			removeMu.Lock()
 			removeCount++
@@ -153,7 +163,13 @@ func TestCache_ParallelWithEviction(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
 				key := string(rune(j % 20))
-				value, err := cache.Get(key)
+				value, err := cache.Get(
+					key,
+					func() (string, uint64, error) {
+						time.Sleep(time.Millisecond)
+						return key, 10, nil
+					},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, key, value)
 			}
@@ -169,29 +185,37 @@ func TestCache_ParallelWithEviction(t *testing.T) {
 }
 
 func TestCache_EmptyCache(t *testing.T) {
-	cache := NewCache[string](100, nil, nil)
+	cache := NewCache[string](100, nil)
 	cache.removeOldest() // Should not panic
 }
 
 func TestCache_MoveToFront(t *testing.T) {
 	cache := NewCache[string](
 		100,
-		func(key string) (string, uint64, error) {
-			return key, 10, nil
-		},
+
 		nil,
 	)
 
 	// Add multiple items
 	keys := []string{"1", "2", "3"}
 	for _, key := range keys {
-		value, err := cache.Get(key)
+		value, err := cache.Get(
+			key,
+			func() (string, uint64, error) {
+				return key, 10, nil
+			},
+		)
 		require.NoError(t, err)
 		assert.Equal(t, key, value)
 	}
 
 	// Access middle item
-	value, err := cache.Get("2")
+	value, err := cache.Get(
+		"2",
+		func() (string, uint64, error) {
+			return "2", 10, nil
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "2", value)
 
