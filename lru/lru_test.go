@@ -32,7 +32,7 @@ func TestCache_Basic(t *testing.T) {
 	value, err := cache.Get("key1", loadKey1)
 	require.NoError(t, err)
 	assert.Equal(t, "value-key1", value)
-	assert.Equal(t, uint64(10), cache.CurrentSize)
+	assert.Equal(t, uint64(10), cache.currentSize)
 
 	// Test cache hit
 	value, err = cache.Get("key1", loadKey1)
@@ -220,7 +220,7 @@ func TestCache_MoveToFront(t *testing.T) {
 	assert.Equal(t, "2", value)
 
 	// Verify order
-	assert.Equal(t, "2", cache.ListHead.Key)
-	assert.Equal(t, "3", cache.ListHead.Next.Key)
-	assert.Equal(t, "1", cache.ListHead.Next.Next.Key)
+	assert.Equal(t, "2", cache.listHead.key)
+	assert.Equal(t, "3", cache.listHead.next.key)
+	assert.Equal(t, "1", cache.listHead.next.next.key)
 }

@@ -6,52 +6,52 @@ import (
 )
 
 type LinkedListEntry[T any] struct {
-	Key   string
-	Value T
-	Size  uint64
-	Prev  *LinkedListEntry[T]
-	Next  *LinkedListEntry[T]
+	key   string
+	value T
+	size  uint64
+	prev  *LinkedListEntry[T]
+	next  *LinkedListEntry[T]
 }
 
 type Cache[T any] struct {
-	ListHead    *LinkedListEntry[T]
-	ListTail    *LinkedListEntry[T]
-	Map         map[string]*LinkedListEntry[T]
-	Loading     map[string]func() (T, error)
-	MaxSize     uint64
-	CurrentSize uint64
+	listHead    *LinkedListEntry[T]
+	listTail    *LinkedListEntry[T]
+	mapByKey    map[string]*LinkedListEntry[T]
+	loading     map[string]func() (T, error)
+	maxSize     uint64
+	currentSize uint64
 	mu          *sync.Mutex
-	OnRemove    func(key string, value T)
+	onRemove    func(key string, value T)
 }
 
 func (c *Cache[T]) removeOldest() {
-	if c.ListTail == nil {
+	if c.listTail == nil {
 		return
 	}
 
-	entry := c.ListTail
-	delete(c.Map, entry.Key)
+	entry := c.listTail
+	delete(c.mapByKey, entry.key)
 
-	c.ListTail = entry.Prev
-	if c.ListTail != nil {
-		c.ListTail.Next = nil
+	c.listTail = entry.prev
+	if c.listTail != nil {
+		c.listTail.next = nil
 	} else {
-		c.ListHead = nil
+		c.listHead = nil
 	}
 
-	if c.OnRemove != nil {
-		c.OnRemove(entry.Key, entry.Value)
+	if c.onRemove != nil {
+		c.onRemove(entry.key, entry.value)
 	}
 
-	c.CurrentSize -= entry.Size
+	c.currentSize -= entry.size
 }
 
 func (c *Cache[T]) makeSpace(size uint64) error {
-	if c.MaxSize < size {
-		return fmt.Errorf("size %d is larger than cache size %d", size, c.MaxSize)
+	if c.maxSize < size {
+		return fmt.Errorf("size %d is larger than cache size %d", size, c.maxSize)
 	}
 
-	for c.CurrentSize+size > c.MaxSize {
+	for c.currentSize+size > c.maxSize {
 		c.removeOldest()
 	}
 	return nil
@@ -60,14 +60,14 @@ func (c *Cache[T]) makeSpace(size uint64) error {
 func (c *Cache[T]) Get(key string, loadFn func() (T, uint64, error)) (T, error) {
 	c.mu.Lock()
 
-	entry, ok := c.Map[key]
+	entry, ok := c.mapByKey[key]
 	if ok {
 		c.moveToFront(entry)
 		c.mu.Unlock()
-		return entry.Value, nil
+		return entry.value, nil
 	}
 
-	loadOnce, exists := c.Loading[key]
+	loadOnce, exists := c.loading[key]
 	if exists {
 		c.mu.Unlock()
 		return loadOnce()
@@ -79,7 +79,7 @@ func (c *Cache[T]) Get(key string, loadFn func() (T, uint64, error)) (T, error) 
 		value, size, err := loadFn()
 		if err != nil {
 			c.mu.Lock()
-			delete(c.Loading, key)
+			delete(c.loading, key)
 			c.mu.Unlock()
 			return value, err
 		}
@@ -89,58 +89,58 @@ func (c *Cache[T]) Get(key string, loadFn func() (T, uint64, error)) (T, error) 
 
 		err = c.makeSpace(size)
 		if err != nil {
-			delete(c.Loading, key)
+			delete(c.loading, key)
 			return value, err
 		}
 
 		entry := &LinkedListEntry[T]{
-			Key:   key,
-			Value: value,
-			Size:  size,
+			key:   key,
+			value: value,
+			size:  size,
 		}
-		c.Map[key] = entry
+		c.mapByKey[key] = entry
 		c.addToFront(entry)
-		c.CurrentSize += size
-		delete(c.Loading, key)
+		c.currentSize += size
+		delete(c.loading, key)
 
 		return value, nil
 	})
 
-	c.Loading[key] = loadOnce
+	c.loading[key] = loadOnce
 	return loadOnce()
 }
 
 func (c *Cache[T]) moveToFront(entry *LinkedListEntry[T]) {
-	if entry == c.ListHead {
+	if entry == c.listHead {
 		return
 	}
 
-	if entry.Prev != nil {
-		entry.Prev.Next = entry.Next
+	if entry.prev != nil {
+		entry.prev.next = entry.next
 	}
-	if entry.Next != nil {
-		entry.Next.Prev = entry.Prev
+	if entry.next != nil {
+		entry.next.prev = entry.prev
 	}
-	if entry == c.ListTail {
-		c.ListTail = entry.Prev
+	if entry == c.listTail {
+		c.listTail = entry.prev
 	}
 
-	entry.Prev = nil
-	entry.Next = c.ListHead
-	c.ListHead.Prev = entry
-	c.ListHead = entry
+	entry.prev = nil
+	entry.next = c.listHead
+	c.listHead.prev = entry
+	c.listHead = entry
 }
 
 func (c *Cache[T]) addToFront(entry *LinkedListEntry[T]) {
-	if c.ListHead == nil {
-		c.ListHead = entry
-		c.ListTail = entry
+	if c.listHead == nil {
+		c.listHead = entry
+		c.listTail = entry
 		return
 	}
 
-	entry.Next = c.ListHead
-	c.ListHead.Prev = entry
-	c.ListHead = entry
+	entry.next = c.listHead
+	c.listHead.prev = entry
+	c.listHead = entry
 }
 
 func NewCache[T any](
@@ -148,10 +148,10 @@ func NewCache[T any](
 	onRemove func(string, T),
 ) *Cache[T] {
 	return &Cache[T]{
-		Map:      make(map[string]*LinkedListEntry[T]),
-		Loading:  make(map[string]func() (T, error)),
-		MaxSize:  maxSize,
+		mapByKey: make(map[string]*LinkedListEntry[T]),
+		loading:  make(map[string]func() (T, error)),
+		maxSize:  maxSize,
 		mu:       &sync.Mutex{},
-		OnRemove: onRemove,
+		onRemove: onRemove,
 	}
 }
