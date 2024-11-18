@@ -20,7 +20,7 @@ func (a *Archive) Append(ctx context.Context, sm *statemate.StateMate[uint64]) e
 
 	blobFileName := fmt.Sprintf("blob-%020d-%020d", firstIndex, lastIndex)
 
-	blobFilePath := filepath.Join(a.blobDir, blobFileName)
+	blobFilePath := filepath.Join(a.workDir, blobFileName)
 
 	builder, err := blobmap.NewBuilder(
 		blobFilePath,

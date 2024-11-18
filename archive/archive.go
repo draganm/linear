@@ -4,35 +4,39 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/draganm/linear/blobmapcache"
 )
 
 type OpenOptions struct {
-	S3Client *s3.Client
-	S3Bucket string
-	Name     string
-	LocalDir string
+	S3Client     *s3.Client
+	S3Bucket     string
+	Name         string
+	BlobmapCache *blobmapcache.BlobmapCache
+	WorkDir      string
 }
 
 var blobRegexp = regexp.MustCompile(`^blob-(\d{20})-(\d{20})$`)
 
 type Archive struct {
-	s3Client *s3.Client
-	s3Bucket string
-	name     string
-	localDir string
-	blobDir  string
+	s3Client         *s3.Client
+	s3Bucket         string
+	name             string
+	workDir          string
+	blobMapsCache    *blobmapcache.BlobmapCache
+	archivedBlobMaps []archivedBlobMap
+	appendLock       sync.Mutex
+	readLock         sync.RWMutex
 }
 
-type archivedBlob struct {
+type archivedBlobMap struct {
 	from uint64
 	to   uint64
 	key  string
@@ -46,7 +50,7 @@ func Open(
 ) (*Archive, error) {
 	cl := opts.S3Client
 
-	blobs := []archivedBlob{}
+	blobMaps := []archivedBlobMap{}
 	var continuationToken *string
 
 	prefix := path.Join(opts.Name, "blobs")
@@ -84,7 +88,7 @@ func Open(
 				return nil, fmt.Errorf("failed to parse blob to index %q: %w", m[2], err)
 			}
 
-			blobs = append(blobs, archivedBlob{
+			blobMaps = append(blobMaps, archivedBlobMap{
 				from: from,
 				to:   to,
 				key:  *key.Key,
@@ -101,22 +105,16 @@ func Open(
 
 	}
 
-	slices.SortFunc(blobs, func(a, b archivedBlob) int {
+	slices.SortFunc(blobMaps, func(a, b archivedBlobMap) int {
 		return int(a.from) - int(b.from)
 	})
 
-	blobdir := filepath.Join(opts.LocalDir, "blobs")
-
-	err := os.MkdirAll(blobdir, 0755)
-	if err != nil {
-		return nil, err
-	}
-
 	return &Archive{
-		s3Client: opts.S3Client,
-		s3Bucket: opts.S3Bucket,
-		name:     opts.Name,
-		localDir: opts.LocalDir,
-		blobDir:  blobdir,
+		s3Client:         opts.S3Client,
+		s3Bucket:         opts.S3Bucket,
+		name:             opts.Name,
+		workDir:          opts.WorkDir,
+		blobMapsCache:    opts.BlobmapCache,
+		archivedBlobMaps: blobMaps,
 	}, nil
 }

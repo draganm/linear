@@ -1,8 +1,9 @@
-package blobcache
+package blobmapcache
 
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -22,7 +23,7 @@ type syncedBlobmap struct {
 	mu      sync.RWMutex
 }
 
-func New(cacheDir string, maxCacheSize uint64) (*BlobmapCache, error) {
+func Open(cacheDir string, maxCacheSize uint64) (*BlobmapCache, error) {
 	cache := &BlobmapCache{
 		cacheDir: cacheDir,
 		cache: lru.NewCache[*syncedBlobmap](maxCacheSize, func(key string, b *syncedBlobmap) {
@@ -46,16 +47,19 @@ func New(cacheDir string, maxCacheSize uint64) (*BlobmapCache, error) {
 		}
 
 		key := entry.Name()
-		_, err = cache.cache.Get(key, func() (*syncedBlobmap, uint64, error) {
-			blobmapPath := filepath.Join(cacheDir, key)
+
+		escapedKey := url.PathEscape(key)
+
+		_, err = cache.cache.Get(escapedKey, func() (*syncedBlobmap, uint64, error) {
+			blobmapPath := filepath.Join(cacheDir, escapedKey)
 			st, err := os.Stat(blobmapPath)
 			if err != nil {
-				return nil, 0, fmt.Errorf("could not stat blobmap %s: %w", key, err)
+				return nil, 0, fmt.Errorf("could not stat blobmap %s: %w", escapedKey, err)
 			}
 
 			b, err := blobmap.Open(blobmapPath)
 			if err != nil {
-				return nil, 0, fmt.Errorf("could not open blobmap %s: %w", key, err)
+				return nil, 0, fmt.Errorf("could not open blobmap %s: %w", escapedKey, err)
 			}
 			return &syncedBlobmap{blobmap: b, mu: sync.RWMutex{}}, uint64(st.Size()), nil
 		})
@@ -75,32 +79,33 @@ func (c *BlobmapCache) WithBlobmap(
 	fn func(ctx context.Context, b *blobmap.Reader) error,
 ) error {
 	var b *syncedBlobmap
+	escapedKey := url.PathEscape(key)
 	for {
 		var err error
 		b, err = c.cache.Get(
 			key,
 			func() (*syncedBlobmap, uint64, error) {
-				blobmapPath := filepath.Join(c.cacheDir, key)
+				blobmapPath := filepath.Join(c.cacheDir, escapedKey)
 				err := loadBlobMap(ctx, blobmapPath)
 				if err != nil {
-					return nil, 0, fmt.Errorf("could not load blobmap %s: %w", key, err)
+					return nil, 0, fmt.Errorf("could not load blobmap %s: %w", escapedKey, err)
 				}
 
 				st, err := os.Stat(blobmapPath)
 				if err != nil {
-					return nil, 0, fmt.Errorf("could not stat blobmap %s: %w", key, err)
+					return nil, 0, fmt.Errorf("could not stat blobmap %s: %w", blobmapPath, err)
 				}
 
 				b, err := blobmap.Open(blobmapPath)
 				if err != nil {
-					return nil, 0, fmt.Errorf("could not open blobmap %s: %w", key, err)
+					return nil, 0, fmt.Errorf("could not open blobmap %s: %w", escapedKey, err)
 				}
 				return &syncedBlobmap{blobmap: b, mu: sync.RWMutex{}}, uint64(st.Size()), nil
 			},
 		)
 
 		if err != nil {
-			return fmt.Errorf("could not get blobmap %s: %w", key, err)
+			return fmt.Errorf("could not get blobmap %s: %w", escapedKey, err)
 		}
 
 		b.mu.RLock()
@@ -116,4 +121,14 @@ func (c *BlobmapCache) WithBlobmap(
 
 	return fn(ctx, b.blobmap)
 
+}
+
+func (c *BlobmapCache) Close() {
+	c.cache.Close(func(s string, sb *syncedBlobmap) error {
+		sb.mu.Lock()
+		sb.blobmap.Close()
+		sb.evicted = true
+		sb.mu.Unlock()
+		return nil
+	})
 }

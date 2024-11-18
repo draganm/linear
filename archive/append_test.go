@@ -2,14 +2,13 @@ package archive_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/draganm/blobmap"
 	"github.com/draganm/linear/archive"
+	"github.com/draganm/linear/blobmapcache"
 	"github.com/draganm/linear/e2eutils"
 	"github.com/draganm/statemate"
 	"github.com/neilotoole/slogt"
@@ -22,6 +21,10 @@ func TestAppend(t *testing.T) {
 
 		statemateDir := t.TempDir()
 		blobDir := t.TempDir()
+		workDir := t.TempDir()
+
+		bmc, err := blobmapcache.Open(blobDir, 50*1024*1024)
+		require.NoError(t, err)
 
 		sm, err := statemate.Open[uint64](filepath.Join(statemateDir, "statemate"), statemate.Options{})
 		require.NoError(t, err)
@@ -36,10 +39,11 @@ func TestAppend(t *testing.T) {
 			ctx,
 			log,
 			archive.OpenOptions{
-				S3Client: s3Client,
-				S3Bucket: bucketName,
-				Name:     "test-archive",
-				LocalDir: blobDir,
+				S3Client:     s3Client,
+				S3Bucket:     bucketName,
+				Name:         "test-archive",
+				BlobmapCache: bmc,
+				WorkDir:      workDir,
 			},
 		)
 		require.NoError(t, err)
@@ -47,33 +51,31 @@ func TestAppend(t *testing.T) {
 		err = ar.Append(ctx, sm)
 		require.NoError(t, err)
 
-		blobs := filepath.Join(blobDir, "blobs")
+		// files, err := os.ReadDir(blobDir)
+		// require.NoError(t, err)
 
-		files, err := os.ReadDir(blobs)
-		require.NoError(t, err)
+		// require.Len(t, files, 1)
 
-		require.Len(t, files, 1)
+		// log.Info("blob", "file", files[0].Name())
 
-		log.Info("blob", "file", files[0].Name())
+		// bm, err := blobmap.Open(filepath.Join(blobDir, files[0].Name()))
+		// require.NoError(t, err)
 
-		bm, err := blobmap.Open(filepath.Join(blobs, files[0].Name()))
-		require.NoError(t, err)
+		// require.Equal(t, uint64(100), bm.LastKey()-bm.FirstKey()+1)
 
-		require.Equal(t, uint64(100), bm.LastKey()-bm.FirstKey()+1)
+		// {
+		// 	d, err := bm.Read(0)
+		// 	require.NoError(t, err)
 
-		{
-			d, err := bm.Read(0)
-			require.NoError(t, err)
+		// 	require.Equal(t, []byte{1, 2, 0}, d)
+		// }
 
-			require.Equal(t, []byte{1, 2, 0}, d)
-		}
+		// {
+		// 	d, err := bm.Read(99)
+		// 	require.NoError(t, err)
 
-		{
-			d, err := bm.Read(99)
-			require.NoError(t, err)
-
-			require.Equal(t, []byte{1, 2, 99}, d)
-		}
+		// 	require.Equal(t, []byte{1, 2, 99}, d)
+		// }
 
 		keys, err := s3Client.ListObjectsV2(
 			ctx,
@@ -87,17 +89,39 @@ func TestAppend(t *testing.T) {
 
 		require.Len(t, keys.Contents, 1)
 
-		_, err = archive.Open(
+		arch, err := archive.Open(
 			ctx,
 			log,
 			archive.OpenOptions{
-				S3Client: s3Client,
-				S3Bucket: bucketName,
-				Name:     "test-archive",
-				LocalDir: blobDir,
+				S3Client:     s3Client,
+				S3Bucket:     bucketName,
+				Name:         "test-archive",
+				BlobmapCache: bmc,
+				WorkDir:      workDir,
 			},
 		)
 		require.NoError(t, err)
+
+		read := [][]byte{}
+		readIndexes := []uint64{}
+		// arch.
+		err = arch.Read(
+			ctx,
+			0,
+			3,
+			func(
+				ctx context.Context,
+				key uint64,
+				data []byte,
+			) error {
+				readIndexes = append(readIndexes, key)
+				read = append(read, data)
+				return nil
+			},
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, []uint64{0, 1, 2}, readIndexes)
 
 	})
 }

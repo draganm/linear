@@ -2,6 +2,7 @@
     "cSpell.words": [
         "blobdir",
         "blobmap",
+        "blobmapcache",
         "Blobmaps",
         "draganm",
         "eutils",
@@ -12,5 +13,11 @@
         "statemate",
         "stretchr",
         "testcontainers"
-    ]
+    ],
+    // "go.testFlags": [
+    //     "-v",
+    //     "-count=1",
+    //     "-timeout=30s",
+    //     "-race",
+    // ]
 }

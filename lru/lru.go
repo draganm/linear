@@ -1,6 +1,7 @@
 package lru
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -154,4 +155,17 @@ func NewCache[T any](
 		mu:       &sync.Mutex{},
 		onRemove: onRemove,
 	}
+}
+
+func (c *Cache[T]) Close(closeValue func(string, T) error) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var err error
+	for key, entry := range c.mapByKey {
+		err = errors.Join(err, closeValue(key, entry.value))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

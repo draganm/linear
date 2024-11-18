@@ -1,4 +1,4 @@
-package blobcache
+package blobmapcache
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func TestBlobmapCache(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Initialize cache with small size to test eviction
-	cache, err := New(tempDir, 2048)
+	cache, err := Open(tempDir, 2048)
 	require.NoError(t, err)
 
 	// Test data
