@@ -44,6 +44,7 @@ func withDataset(t *testing.T, fn func(ctx context.Context, url string)) {
 		r.HandleFunc("GET /dataset", ds.GetInfo)
 		r.HandleFunc("GET /dataset/{index}", ds.Get)
 		r.HandleFunc("PUT /dataset/{index}", ds.Append)
+		r.HandleFunc("POST /dataset", ds.AppendMulti)
 
 		s := httptest.NewServer(r)
 		defer s.Close()
