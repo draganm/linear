@@ -43,6 +43,7 @@ func withDataset(t *testing.T, fn func(ctx context.Context, url string)) {
 
 		r.HandleFunc("GET /dataset", ds.GetInfo)
 		r.HandleFunc("GET /dataset/{index}", ds.Get)
+		r.HandleFunc("GET /dataset/{index}/{count}", ds.GetBatch)
 		r.HandleFunc("PUT /dataset/{index}", ds.Append)
 		r.HandleFunc("POST /dataset", ds.AppendMulti)
 
